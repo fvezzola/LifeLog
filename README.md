@@ -2,103 +2,61 @@
 
 Private, AI-powered life stream. Log anything — Claude auto-builds and evolves your personal taxonomy.
 
----
-
-## Files
-```
-lifelog-pwa/
-├── index.html     ← main app
-├── manifest.json  ← PWA config
-├── sw.js          ← service worker (offline support)
-└── README.md
-```
-
-You also need two icon files (any square image, renamed):
-- `icon-192.png` (192×192)
-- `icon-512.png` (512×512)
+No backend. No accounts. No database. Your entries live in your browser's `localStorage`.
 
 ---
 
-## Option A — Use in Browser Right Now (no hosting needed)
+## What it does
 
-Chrome/Edge can install a local PWA with a flag:
-1. Open Chrome, go to `chrome://flags`
-2. Enable **"Unsafely treat insecure origin as secure"**
-3. Add `file:///path/to/lifelog-pwa/index.html`
-4. Open the file, then install from Chrome menu
+You dump a thought, a mood, a workout, a meeting note — anything. Claude reads the entry alongside your existing taxonomy and the last few entries, then decides:
 
-Or just open `index.html` in Chrome directly — it works without the PWA layer.
+- **Assign** it to one of your existing categories
+- **Create** a new category when a genuinely new domain appears
+- **Suggest** a merge / rename / split when patterns drift
 
----
+Over time the categories stop being generic and start reflecting *your* life.
 
-## Option B — Host on GitHub Pages (Free, 5 min) → Best for APK
+### Key features
 
-### Step 1: GitHub Pages
+- **Dynamic taxonomy** — categories evolve from your actual entries, not a fixed list
+- **Re-analyze all entries** (Settings) — rebuild the whole taxonomy once you have 20–30 entries logged
+- **Voice input** — tap the 🎙 to dictate (Chrome on Android or desktop; iOS Safari is not supported)
+- **Reminders** — optional nudge every N minutes
+- **Export / import JSON** — move data between devices
+- **Offline-capable PWA** — service worker caches the shell
 
-1. Create a free account at **github.com**
-2. New repository → name it `lifelog` → set to **Public**
-3. Upload all files from this folder
-4. Go to repo **Settings → Pages → Source → main branch → Save**
-5. Your app is live at: `https://YOUR_USERNAME.github.io/lifelog/`
+### Keyboard shortcuts
 
-### Step 2: Install on Android (Chrome)
-
-1. Open your GitHub Pages URL in Chrome on your phone
-2. Wait 30 seconds for the app to load
-3. Tap Chrome menu (⋮) → **"Add to Home Screen"** or **"Install app"**
-4. Done — it's on your home screen like a native app
-
-### Step 3: Get a Real APK (Optional)
-
-1. Go to **pwabuilder.com**
-2. Enter your GitHub Pages URL
-3. Click **"Package for stores"** → Android
-4. Download the generated APK
-5. Sideload it: transfer to phone → Settings → Install unknown apps → install
-
-The PWABuilder APK uses Android's **Trusted Web Activity** — it's a real signed APK, not a webview wrapper.
+- `Cmd / Ctrl + Enter` — submit entry
 
 ---
 
-## API Key
+## API key
 
-Get a free Anthropic API key at **console.anthropic.com** (you pay per use, very cheap).
-Enter it in Settings → it stays only in your device's localStorage, never sent anywhere except Anthropic's API for classification.
-
----
-
-## How the Dynamic Taxonomy Works
-
-On each entry, Claude receives:
-- The new entry text
-- Your full current taxonomy (categories + descriptions + counts)
-- The last 5 entries as context
-
-It then decides:
-- **Assign** to an existing category (most common)
-- **Create** a new category (when a genuinely new life domain appears)
-- **Suggest** a taxonomy optimization (merge, rename, split) when it spots patterns
-
-Over time, the categories stop being generic and become yours — shaped by your actual life patterns.
-
-Use **"Re-analyze all entries"** in Settings to have Claude rebuild the entire taxonomy from scratch after you've logged 20–30 entries. This is the most powerful way to let the AI learn your patterns.
+Get a key at **console.anthropic.com** and paste it into Settings. It's stored only in your device's `localStorage` and is sent only to Anthropic's API for classification — never anywhere else.
 
 ---
 
-## Keyboard Shortcuts
+## Get the APK (optional)
 
-- `Cmd/Ctrl + Enter` → Submit entry (desktop)
+If you want a real Android app icon instead of the browser PWA install:
 
----
+1. Open the GitHub Pages URL on your phone in Chrome (or use **Add to Home Screen** for a pure PWA)
+2. Or generate a signed APK at **pwabuilder.com** → enter the URL → **Package for stores → Android**
+3. Sideload: transfer the APK to your phone → Settings → *Install unknown apps* → install
 
-## Data
-
-All data lives in your browser's **localStorage**. Export to JSON anytime from Settings. Import it back if you switch devices or browsers.
+PWABuilder uses Android's **Trusted Web Activity**, so it's a real signed APK — not a webview wrapper.
 
 ---
 
 ## Privacy
 
-Your entries go to Anthropic's API for classification only. They are not stored anywhere else.
-Your API key is stored only in your device's localStorage.
-This app has no backend, no database, no accounts.
+Entries are sent to Anthropic's API for classification only. They are not persisted server-side by this app. Your API key never leaves your device except in those classification requests.
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. Use at your own risk.
