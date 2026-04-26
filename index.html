@@ -1132,29 +1132,59 @@ function initVoice() {
     document.getElementById('entry-textarea').value = voiceFinalText + interim;
   };
 
-  recognition.onend = () => { if (isRecording) recognition.start(); };
-  recognition.onerror = () => {
+  // Mobile browsers auto-stop after silence; resume if the user is still recording.
+  recognition.onend = () => {
+    if (!isRecording) return;
+    try { recognition.start(); }
+    catch (_) {
+      isRecording = false;
+      setMicState(false);
+      document.getElementById('voice-indicator').textContent = '';
+    }
+  };
+
+  recognition.onerror = e => {
+    const messages = {
+      'not-allowed': 'Microphone blocked. Enable it for this site in browser settings.',
+      'service-not-allowed': 'Microphone blocked. Enable it for this site in browser settings.',
+      'audio-capture': 'No microphone found on this device.',
+      'no-speech': 'No speech detected — tap mic and try again.',
+      'network': 'Network error — speech recognition needs internet.',
+      'aborted': ''
+    };
+    const msg = e.error in messages ? messages[e.error] : `Voice error: ${e.error}`;
+    if (msg) toast(msg);
     isRecording = false;
     setMicState(false);
+    document.getElementById('voice-indicator').textContent = '';
   };
 }
 
 function toggleVoice() {
-  if (!recognition) { toast('Voice not supported in this browser'); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice input not supported here. Try Chrome on Android or desktop.'); return; }
+  if (!window.isSecureContext) { toast('Voice requires HTTPS. Open the site over https://'); return; }
+  if (!recognition) initVoice();
+  if (!recognition) { toast('Voice unavailable'); return; }
 
   if (isRecording) {
-    recognition.stop();
     isRecording = false;
+    try { recognition.stop(); } catch (_) {}
     setMicState(false);
     document.getElementById('voice-indicator').textContent = '';
-  } else {
-    openSheet();
-    document.getElementById('entry-textarea').value = '';
-    voiceFinalText = '';
+    return;
+  }
+
+  openSheet();
+  document.getElementById('entry-textarea').value = '';
+  voiceFinalText = '';
+  try {
     recognition.start();
     isRecording = true;
     setMicState(true);
     document.getElementById('voice-indicator').textContent = '● listening... tap mic to stop';
+  } catch (_) {
+    toast('Could not start voice — check microphone permissions.');
   }
 }
 
