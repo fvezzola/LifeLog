@@ -1201,27 +1201,37 @@ function initVoice() {
 async function toggleVoice() {
   if (!window.isSecureContext) { toast('Voice requires HTTPS. Open the site over https://'); return; }
 
-  // If a Deepgram key is saved, use the cross-browser MediaRecorder + Deepgram path.
-  if (dgKey) { return toggleVoiceDeepgram(); }
-
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice input not supported here. Try Chrome/Edge or add a Deepgram key in Settings.'); return; }
-  if (!recognition) initVoice();
-  if (!recognition) { toast('Voice unavailable'); return; }
-
+  // STOP path — works for whichever backend is currently active
   if (isRecording) {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      try { mediaRecorder.stop(); } catch (_) {}
+      return;
+    }
     isRecording = false;
     if (voiceWatchdog) { clearTimeout(voiceWatchdog); voiceWatchdog = null; }
-    try { recognition.stop(); } catch (_) {}
+    try { recognition && recognition.stop(); } catch (_) {}
     setMicState(false);
     document.getElementById('voice-indicator').textContent = '';
     return;
   }
 
-  // First-time-only: probe getUserMedia to force the OS permission prompt,
-  // since webkitSpeechRecognition.start() doesn't always trigger it.
-  // Persist the grant so subsequent toggles go straight to recognition.start()
-  // (avoids a mic-release race that can break recognition on Android).
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  // No Web Speech API at all → straight to Deepgram if we have a key
+  if (!SR) {
+    if (dgKey) return startVoiceDeepgram();
+    toast('Voice input not supported here. Add a Deepgram key in Settings to use any browser.');
+    return;
+  }
+
+  if (!recognition) initVoice();
+  if (!recognition) {
+    if (dgKey) return startVoiceDeepgram();
+    toast('Voice unavailable');
+    return;
+  }
+
+  // First-time-only: probe getUserMedia to force the OS permission prompt
   if (!localStorage.getItem('ll_mic_ok') && navigator.mediaDevices?.getUserMedia) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1244,18 +1254,24 @@ async function toggleVoice() {
     recognition.start();
     isRecording = true;
     setMicState(true);
-    // Watchdog: if onstart never fires, recognition is hung — typically because
-    // the browser's speech service is blocked (Brave Shields, Firefox no-op,
-    // strict firewall, no Google services on this Chromium build).
+    // Try Web Speech first. If onstart doesn't fire in 800ms (browser blocking
+    // it — Brave Shields, Opera, Firefox, etc.) auto-fall-back to Deepgram
+    // when a key is saved. Otherwise surface the error.
     voiceWatchdog = setTimeout(() => {
       if (voiceStartedFlag || !isRecording) return;
       isRecording = false;
       try { recognition.abort(); } catch (_) {}
       setMicState(false);
-      document.getElementById('voice-indicator').textContent = '';
-      toast("Speech recognition didn't start. Your browser may be blocking it (Brave Shields, Firefox, no-Google-services Chromium) or a firewall is blocking Google's speech servers. Try Chrome or Edge.");
-    }, 3500);
+      if (dgKey) {
+        document.getElementById('voice-indicator').textContent = '● switching to Deepgram...';
+        startVoiceDeepgram();
+      } else {
+        document.getElementById('voice-indicator').textContent = '';
+        toast("Browser speech didn't respond. Add a Deepgram key in Settings to use any browser.");
+      }
+    }, 800);
   } catch (err) {
+    if (dgKey) return startVoiceDeepgram();
     toast(`Could not start voice: ${err.message || 'unknown error'}`);
     document.getElementById('voice-indicator').textContent = '';
   }
@@ -1265,12 +1281,7 @@ async function toggleVoice() {
 let dgSocket = null;
 let dgFinalText = '';
 
-async function toggleVoiceDeepgram() {
-  // Already streaming → stop everything
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    try { mediaRecorder.stop(); } catch (_) {}
-    return;
-  }
+async function startVoiceDeepgram() {
 
   let stream;
   try {
