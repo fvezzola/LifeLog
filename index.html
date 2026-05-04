@@ -384,6 +384,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .settings-section-title {
   padding: 10px 14px;
@@ -1160,7 +1161,7 @@ function initVoice() {
   };
 }
 
-function toggleVoice() {
+async function toggleVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast('Voice input not supported here. Try Chrome on Android or desktop.'); return; }
   if (!window.isSecureContext) { toast('Voice requires HTTPS. Open the site over https://'); return; }
@@ -1173,6 +1174,18 @@ function toggleVoice() {
     setMicState(false);
     document.getElementById('voice-indicator').textContent = '';
     return;
+  }
+
+  // Force the OS mic permission prompt — webkitSpeechRecognition.start()
+  // doesn't always trigger it on its own (notably Chrome on Android).
+  if (navigator.mediaDevices?.getUserMedia) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+    } catch (_) {
+      toast('Microphone permission denied. Allow it in browser settings.');
+      return;
+    }
   }
 
   openSheet();
