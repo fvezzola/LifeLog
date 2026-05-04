@@ -1123,6 +1123,13 @@ function initVoice() {
   recognition.interimResults = true;
   recognition.lang = 'en-US';
 
+  const indicator = () => document.getElementById('voice-indicator');
+
+  recognition.onstart       = () => { indicator().textContent = '● ready — start speaking'; };
+  recognition.onaudiostart  = () => { indicator().textContent = '● mic open — speak now'; };
+  recognition.onspeechstart = () => { indicator().textContent = '● hearing you...'; };
+  recognition.onspeechend   = () => { indicator().textContent = '● processing...'; };
+
   recognition.onresult = e => {
     let interim = '';
     voiceFinalText = '';
@@ -1131,17 +1138,22 @@ function initVoice() {
       else interim += e.results[i][0].transcript;
     }
     document.getElementById('entry-textarea').value = voiceFinalText + interim;
+    if (voiceFinalText || interim) indicator().textContent = '● listening... tap mic to stop';
   };
 
   // Mobile browsers auto-stop after silence; resume if the user is still recording.
+  // Small delay avoids InvalidStateError from immediate restart.
   recognition.onend = () => {
     if (!isRecording) return;
-    try { recognition.start(); }
-    catch (_) {
-      isRecording = false;
-      setMicState(false);
-      document.getElementById('voice-indicator').textContent = '';
-    }
+    setTimeout(() => {
+      if (!isRecording) return;
+      try { recognition.start(); }
+      catch (_) {
+        isRecording = false;
+        setMicState(false);
+        indicator().textContent = '';
+      }
+    }, 250);
   };
 
   recognition.onerror = e => {
@@ -1149,15 +1161,19 @@ function initVoice() {
       'not-allowed': 'Microphone blocked. Enable it for this site in browser settings.',
       'service-not-allowed': 'Microphone blocked. Enable it for this site in browser settings.',
       'audio-capture': 'No microphone found on this device.',
-      'no-speech': 'No speech detected — tap mic and try again.',
-      'network': 'Network error — speech recognition needs internet.',
-      'aborted': ''
+      'no-speech': 'No speech detected — keep talking or tap mic to stop.',
+      'network': 'Speech recognition needs internet — check your connection.',
+      'aborted': 'Voice was aborted. Tap mic again to retry.',
+      'language-not-supported': 'Language not supported by your browser.'
     };
     const msg = e.error in messages ? messages[e.error] : `Voice error: ${e.error}`;
     if (msg) toast(msg);
-    isRecording = false;
-    setMicState(false);
-    document.getElementById('voice-indicator').textContent = '';
+    // Don't kill the session on no-speech — the onend auto-restart will keep us going.
+    if (e.error !== 'no-speech') {
+      isRecording = false;
+      setMicState(false);
+      indicator().textContent = '';
+    }
   };
 }
 
@@ -1176,12 +1192,16 @@ async function toggleVoice() {
     return;
   }
 
-  // Force the OS mic permission prompt — webkitSpeechRecognition.start()
-  // doesn't always trigger it on its own (notably Chrome on Android).
-  if (navigator.mediaDevices?.getUserMedia) {
+  // First-time-only: probe getUserMedia to force the OS permission prompt,
+  // since webkitSpeechRecognition.start() doesn't always trigger it.
+  // Persist the grant so subsequent toggles go straight to recognition.start()
+  // (avoids a mic-release race that can break recognition on Android).
+  if (!localStorage.getItem('ll_mic_ok') && navigator.mediaDevices?.getUserMedia) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach(t => t.stop());
+      localStorage.setItem('ll_mic_ok', '1');
+      await new Promise(r => setTimeout(r, 200));
     } catch (_) {
       toast('Microphone permission denied. Allow it in browser settings.');
       return;
@@ -1191,13 +1211,14 @@ async function toggleVoice() {
   openSheet();
   document.getElementById('entry-textarea').value = '';
   voiceFinalText = '';
+  document.getElementById('voice-indicator').textContent = '● starting...';
   try {
     recognition.start();
     isRecording = true;
     setMicState(true);
-    document.getElementById('voice-indicator').textContent = '● listening... tap mic to stop';
-  } catch (_) {
-    toast('Could not start voice — check microphone permissions.');
+  } catch (err) {
+    toast(`Could not start voice: ${err.message || 'unknown error'}`);
+    document.getElementById('voice-indicator').textContent = '';
   }
 }
 
