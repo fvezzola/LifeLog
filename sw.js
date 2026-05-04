@@ -25,14 +25,16 @@ self.addEventListener('activate', e => {
 // Fetch: cache-first for own assets, network-first for API calls
 self.addEventListener('fetch', e => {
   // Never intercept Anthropic API calls
-  if (e.request.url.includes('anthropic.com')) return;
+  let host = '';
+  try { host = new URL(e.request.url).hostname; } catch (_) {}
+  if (host === 'api.anthropic.com' || host.endsWith('.anthropic.com')) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
       return fetch(e.request).then(resp => {
         // Cache successful same-origin GET responses
-        if (resp.ok && e.request.method === 'GET' && !e.request.url.includes('googleapis')) {
+        if (resp.ok && e.request.method === 'GET' && host !== 'fonts.googleapis.com' && host !== 'fonts.gstatic.com') {
           const clone = resp.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
