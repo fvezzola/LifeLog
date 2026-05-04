@@ -621,6 +621,17 @@ body {
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-title">Voice Fallback (Deepgram)</div>
+      <div class="settings-row">
+        <small>Optional. The browser's built-in speech recognition only works in Chrome/Edge. Add a Deepgram key to make voice input work in Opera, Firefox, Brave, etc. Sign up at console.deepgram.com — $200 free credit, no card required. When a key is saved, the 🎙 button records audio and sends it to Deepgram for transcription.</small>
+        <input type="password" id="dg-key-input" placeholder="Deepgram API key">
+        <button class="settings-btn" onclick="saveDgKey()">Save Key</button>
+        <button class="settings-btn" onclick="clearDgKey()" style="opacity:0.6">Clear</button>
+        <div id="dg-key-status" style="font-size:10px;color:var(--muted)"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-title">Dynamic Taxonomy</div>
       <div class="settings-row">
         <small>Your current auto-generated categories. Claude builds these from your entries — they'll evolve over time.</small>
@@ -701,11 +712,15 @@ body {
 let entries    = [];
 let taxonomy   = {};   // { key: { name, description, icon, color, count } }
 let apiKey     = '';
+let dgKey      = '';
 let browseFilter = 'all';
 let reminderTimer = null;
 let recognition = null;
 let isRecording = false;
 let voiceFinalText = '';
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordedStream = null;
 
 const CAT_COLORS = [
   '#4a9eff','#e8b84b','#4acd8a','#e05555','#b86cf0',
@@ -717,10 +732,12 @@ const CAT_COLORS = [
 // ═══════════════════════════════════════════════════════════════════
 function init() {
   apiKey   = localStorage.getItem('ll_key') || '';
+  dgKey    = localStorage.getItem('ll_dg_key') || '';
   entries  = JSON.parse(localStorage.getItem('ll_entries') || '[]');
   taxonomy = JSON.parse(localStorage.getItem('ll_taxonomy') || '{}');
 
   if (apiKey) document.getElementById('key-status').textContent = '✓ API key saved';
+  if (dgKey)  document.getElementById('dg-key-status').textContent = '✓ Deepgram key saved — voice will use Deepgram';
 
   const remMins = localStorage.getItem('ll_remindermins') || '120';
   const remOn   = localStorage.getItem('ll_reminderon') === 'true';
@@ -1182,9 +1199,13 @@ function initVoice() {
 }
 
 async function toggleVoice() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice input not supported here. Try Chrome on Android or desktop.'); return; }
   if (!window.isSecureContext) { toast('Voice requires HTTPS. Open the site over https://'); return; }
+
+  // If a Deepgram key is saved, use the cross-browser MediaRecorder + Deepgram path.
+  if (dgKey) { return toggleVoiceDeepgram(); }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast('Voice input not supported here. Try Chrome/Edge or add a Deepgram key in Settings.'); return; }
   if (!recognition) initVoice();
   if (!recognition) { toast('Voice unavailable'); return; }
 
@@ -1238,6 +1259,90 @@ async function toggleVoice() {
     toast(`Could not start voice: ${err.message || 'unknown error'}`);
     document.getElementById('voice-indicator').textContent = '';
   }
+}
+
+// ── Deepgram fallback path (works in any browser with a mic) ──
+async function toggleVoiceDeepgram() {
+  // Stop in-progress recording → triggers transcription on stop event
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    document.getElementById('voice-indicator').textContent = '● transcribing...';
+    mediaRecorder.stop();
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (_) {
+    toast('Microphone permission denied. Allow it in browser settings.');
+    return;
+  }
+
+  recordedStream = stream;
+  recordedChunks = [];
+
+  // Pick a mime type the browser actually supports.
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', ''];
+  const mime = candidates.find(t => t === '' || (window.MediaRecorder && MediaRecorder.isTypeSupported(t)));
+  try {
+    mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  } catch (err) {
+    stream.getTracks().forEach(t => t.stop());
+    toast(`Audio recording not supported: ${err.message}`);
+    return;
+  }
+
+  mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+
+  mediaRecorder.onstop = async () => {
+    if (recordedStream) { recordedStream.getTracks().forEach(t => t.stop()); recordedStream = null; }
+    isRecording = false;
+    setMicState(false);
+
+    if (!recordedChunks.length) {
+      document.getElementById('voice-indicator').textContent = '';
+      toast('No audio captured. Tap mic and try again.');
+      return;
+    }
+
+    const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+    document.getElementById('voice-indicator').textContent = '● transcribing...';
+    try {
+      const text = await transcribeWithDeepgram(blob);
+      const ta = document.getElementById('entry-textarea');
+      const existing = ta.value.trim();
+      ta.value = existing ? existing + ' ' + text : text;
+      document.getElementById('voice-indicator').textContent = text ? '' : '● (no speech detected)';
+      if (!text) setTimeout(() => { document.getElementById('voice-indicator').textContent = ''; }, 2500);
+    } catch (err) {
+      document.getElementById('voice-indicator').textContent = '';
+      toast(`Transcription failed: ${err.message}`);
+    }
+  };
+
+  openSheet();
+  document.getElementById('voice-indicator').textContent = '● recording — tap mic to stop';
+  mediaRecorder.start();
+  isRecording = true;
+  setMicState(true);
+}
+
+async function transcribeWithDeepgram(blob) {
+  const url = 'https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true';
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Token ${dgKey}`,
+      'Content-Type': blob.type || 'audio/webm'
+    },
+    body: blob
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`Deepgram ${resp.status}${body ? ' — ' + body.slice(0, 120) : ''}`);
+  }
+  const data = await resp.json();
+  return data?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim() || '';
 }
 
 function setMicState(on) {
@@ -1342,6 +1447,24 @@ function saveApiKey() {
   document.getElementById('api-key-input').value = '';
   document.getElementById('key-status').textContent = '✓ Key saved';
   toast('API key saved');
+}
+
+function saveDgKey() {
+  const k = document.getElementById('dg-key-input').value.trim();
+  if (!k) { toast('Paste a Deepgram key first'); return; }
+  dgKey = k;
+  localStorage.setItem('ll_dg_key', k);
+  document.getElementById('dg-key-input').value = '';
+  document.getElementById('dg-key-status').textContent = '✓ Deepgram key saved — voice will use Deepgram';
+  toast('Deepgram key saved');
+}
+
+function clearDgKey() {
+  dgKey = '';
+  localStorage.removeItem('ll_dg_key');
+  document.getElementById('dg-key-input').value = '';
+  document.getElementById('dg-key-status').textContent = '';
+  toast('Deepgram key cleared — voice will use the browser');
 }
 
 function savePersist() {
