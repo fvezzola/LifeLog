@@ -1115,6 +1115,9 @@ function deleteCat(key) {
 // ═══════════════════════════════════════════════════════════════════
 // VOICE
 // ═══════════════════════════════════════════════════════════════════
+let voiceStartedFlag = false;
+let voiceWatchdog = null;
+
 function initVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return;
@@ -1125,7 +1128,7 @@ function initVoice() {
 
   const indicator = () => document.getElementById('voice-indicator');
 
-  recognition.onstart       = () => { indicator().textContent = '● ready — start speaking'; };
+  recognition.onstart       = () => { voiceStartedFlag = true; indicator().textContent = '● ready — start speaking'; };
   recognition.onaudiostart  = () => { indicator().textContent = '● mic open — speak now'; };
   recognition.onspeechstart = () => { indicator().textContent = '● hearing you...'; };
   recognition.onspeechend   = () => { indicator().textContent = '● processing...'; };
@@ -1171,6 +1174,7 @@ function initVoice() {
     // Don't kill the session on no-speech — the onend auto-restart will keep us going.
     if (e.error !== 'no-speech') {
       isRecording = false;
+      if (voiceWatchdog) { clearTimeout(voiceWatchdog); voiceWatchdog = null; }
       setMicState(false);
       indicator().textContent = '';
     }
@@ -1186,6 +1190,7 @@ async function toggleVoice() {
 
   if (isRecording) {
     isRecording = false;
+    if (voiceWatchdog) { clearTimeout(voiceWatchdog); voiceWatchdog = null; }
     try { recognition.stop(); } catch (_) {}
     setMicState(false);
     document.getElementById('voice-indicator').textContent = '';
@@ -1212,10 +1217,23 @@ async function toggleVoice() {
   document.getElementById('entry-textarea').value = '';
   voiceFinalText = '';
   document.getElementById('voice-indicator').textContent = '● starting...';
+  voiceStartedFlag = false;
+  if (voiceWatchdog) { clearTimeout(voiceWatchdog); voiceWatchdog = null; }
   try {
     recognition.start();
     isRecording = true;
     setMicState(true);
+    // Watchdog: if onstart never fires, recognition is hung — typically because
+    // the browser's speech service is blocked (Brave Shields, Firefox no-op,
+    // strict firewall, no Google services on this Chromium build).
+    voiceWatchdog = setTimeout(() => {
+      if (voiceStartedFlag || !isRecording) return;
+      isRecording = false;
+      try { recognition.abort(); } catch (_) {}
+      setMicState(false);
+      document.getElementById('voice-indicator').textContent = '';
+      toast("Speech recognition didn't start. Your browser may be blocking it (Brave Shields, Firefox, no-Google-services Chromium) or a firewall is blocking Google's speech servers. Try Chrome or Edge.");
+    }, 3500);
   } catch (err) {
     toast(`Could not start voice: ${err.message || 'unknown error'}`);
     document.getElementById('voice-indicator').textContent = '';
