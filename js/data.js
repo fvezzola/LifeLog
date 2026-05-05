@@ -2,6 +2,7 @@
 
 import { state, savePersist } from './state.js';
 import { toast, renderLog, renderBrowse, renderTaxonomyPills, updateEntryCount } from './ui.js';
+import { deleteEntryRemote, pushTaxonomy } from './sync.js';
 
 export function deleteEntry(id) {
   const e = state.entries.find(e => e.id === id);
@@ -13,6 +14,8 @@ export function deleteEntry(id) {
   renderLog();
   renderBrowse();
   updateEntryCount();
+  deleteEntryRemote(id);          // fire-and-forget remote delete
+  pushTaxonomy();                  // count changed
 }
 
 export function deleteCat(key) {
@@ -20,6 +23,7 @@ export function deleteCat(key) {
   delete state.taxonomy[key];
   savePersist();
   renderTaxonomyPills();
+  pushTaxonomy();
 }
 
 export function clearAll() {
@@ -30,6 +34,9 @@ export function clearAll() {
     renderLog();
     renderTaxonomyPills();
     updateEntryCount();
+    pushTaxonomy();
+    // Note: remote entries aren't deleted en masse here. Sign out + delete
+    // account in Supabase if you want a true cloud-side wipe.
   }
 }
 

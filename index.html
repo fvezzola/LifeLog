@@ -621,6 +621,22 @@ body {
     </div>
 
     <div class="settings-section">
+      <div class="settings-section-title">Cloud Sync (Supabase)</div>
+      <div class="settings-row" id="sync-signed-out">
+        <small>Sign in with email to sync entries between phone and PC. We send a magic link — no password to remember. The app keeps working offline; sync happens when you're back online.</small>
+        <input type="email" id="sync-email" placeholder="you@example.com">
+        <button class="settings-btn" id="sync-signin-btn">Send Magic Link</button>
+      </div>
+      <div class="settings-row" id="sync-signed-in" style="display:none">
+        <small>Signed in as <strong id="sync-user-email"></strong></small>
+        <button class="settings-btn" id="sync-signout-btn" style="opacity:0.6">Sign out</button>
+      </div>
+      <div class="settings-row">
+        <div id="sync-status" style="font-size:10px;color:var(--muted)"></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <div class="settings-section-title">Voice Fallback (Deepgram)</div>
       <div class="settings-row">
         <small>Optional. The browser's built-in speech recognition only works in Chrome/Edge. Add a Deepgram key to make voice input work in Opera, Firefox, Brave, etc. Sign up at console.deepgram.com — $200 free credit, no card required. When a key is saved, the 🎙 button streams audio live to Deepgram and transcribes as you speak.</small>

@@ -2,6 +2,7 @@
 
 import { state, savePersist, CAT_COLORS } from './state.js';
 import { toast, renderTaxonomyPills, renderLog, renderBrowseChips } from './ui.js';
+import { pushTaxonomy } from './sync.js';
 
 const MODEL = 'claude-sonnet-4-20250514';
 
@@ -126,6 +127,7 @@ Respond ONLY with valid JSON array of category objects, no markdown:
     });
 
     savePersist();
+    pushTaxonomy();
     renderTaxonomyPills();
     renderLog();
     renderBrowseChips();

@@ -12,6 +12,7 @@ import { initVoice, toggleVoice } from './voice.js';
 import { toggleReminder, startReminder } from './reminders.js';
 import { deleteEntry, deleteCat, clearAll, exportData, importData, handleImport } from './data.js';
 import { saveApiKey, saveDgKey, clearDgKey } from './settings.js';
+import { initSync, pushEntry, pushTaxonomy } from './sync.js';
 
 // ── Submit (the entry → classify → render → persist flow) ─────────────
 async function submitEntry() {
@@ -62,6 +63,9 @@ async function submitEntry() {
     ta.value = '';
     state.voiceFinalText = '';
 
+    pushEntry(entry);                 // fire-and-forget cloud upsert
+    pushTaxonomy();                   // count changed; refresh remote blob
+
     if (result.taxonomy_suggestion) renderTaxonomySuggestion(result.taxonomy_suggestion);
 
     toast(`→ ${state.taxonomy[key]?.name || key}`);
@@ -100,6 +104,8 @@ function init() {
   document.getElementById('reminder-mins').addEventListener('change', () => {
     if (document.getElementById('reminder-toggle').checked) startReminder();
   });
+
+  initSync();
 }
 
 // ── Expose for inline HTML onclick handlers ───────────────────────────
