@@ -19,11 +19,10 @@ async function submitEntry() {
   const ta   = document.getElementById('entry-textarea');
   const text = ta.value.trim();
   if (!text) return;
-  if (!state.apiKey) { toast('Set your API key in Settings first'); showScreen('settings'); return; }
 
   const btn = document.getElementById('sheet-submit');
   btn.disabled = true;
-  btn.textContent = '⟳ classifying...';
+  btn.textContent = state.apiKey ? '⟳ classifying...' : '⟳ saving...';
   document.getElementById('loading-card').classList.add('visible');
 
   const wasVoice = state.isRecording || (state.voiceFinalText && text === state.voiceFinalText);
@@ -32,27 +31,38 @@ async function submitEntry() {
   closeSheet();
 
   try {
-    const result = await classify(text);
+    let key = 'uncategorized';
+    let summary = '';
+    let tags = [];
+    let taxonomySuggestion = null;
 
-    const key = result.category_key || 'other';
-    if (result.is_new && result.new_category) {
-      const colorIdx = Object.keys(state.taxonomy).length % CAT_COLORS.length;
-      state.taxonomy[key] = {
-        name:        result.new_category.name || key,
-        description: result.new_category.description || '',
-        icon:        result.new_category.icon || '◆',
-        color:       CAT_COLORS[colorIdx],
-        count:       0
-      };
+    if (state.apiKey) {
+      const result = await classify(text);
+      key = result.category_key || 'other';
+      summary = result.summary || '';
+      tags = result.tags || [];
+      taxonomySuggestion = result.taxonomy_suggestion || null;
+
+      if (result.is_new && result.new_category) {
+        const colorIdx = Object.keys(state.taxonomy).length % CAT_COLORS.length;
+        state.taxonomy[key] = {
+          name:        result.new_category.name || key,
+          description: result.new_category.description || '',
+          icon:        result.new_category.icon || '◆',
+          color:       CAT_COLORS[colorIdx],
+          count:       0
+        };
+      }
     }
+
     if (state.taxonomy[key]) state.taxonomy[key].count = (state.taxonomy[key].count || 0) + 1;
 
     const entry = {
       id:        Date.now().toString(),
       text,
       category:  key,
-      summary:   result.summary || '',
-      tags:      result.tags || [],
+      summary,
+      tags,
       timestamp: new Date().toISOString(),
       source:    wasVoice ? 'voice' : 'text'
     };
@@ -66,9 +76,10 @@ async function submitEntry() {
     pushEntry(entry);                 // fire-and-forget cloud upsert
     pushTaxonomy();                   // count changed; refresh remote blob
 
-    if (result.taxonomy_suggestion) renderTaxonomySuggestion(result.taxonomy_suggestion);
+    if (taxonomySuggestion) renderTaxonomySuggestion(taxonomySuggestion);
 
-    toast(`→ ${state.taxonomy[key]?.name || key}`);
+    if (state.apiKey) toast(`→ ${state.taxonomy[key]?.name || key}`);
+    else toast('Saved (add API key in Settings to auto-categorize)');
   } catch (e) {
     toast('Error: ' + e.message);
     console.error(e);
