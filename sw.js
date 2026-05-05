@@ -1,8 +1,16 @@
-const CACHE = 'lifelog-v1';
+const CACHE = 'lifelog-v2';
 const ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/js/app.js',
+  '/js/state.js',
+  '/js/ui.js',
+  '/js/ai.js',
+  '/js/voice.js',
+  '/js/reminders.js',
+  '/js/data.js',
+  '/js/settings.js',
   'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;1,300&display=swap'
 ];
 
