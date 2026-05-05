@@ -1,4 +1,4 @@
-const CACHE = 'lifelog-v2';
+const CACHE = 'lifelog-v3';
 const ASSETS = [
   '/',
   '/index.html',
@@ -11,6 +11,8 @@ const ASSETS = [
   '/js/reminders.js',
   '/js/data.js',
   '/js/settings.js',
+  '/js/sync.js',
+  '/js/config.js',
   'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;1,300&display=swap'
 ];
 
@@ -36,6 +38,8 @@ self.addEventListener('fetch', e => {
   let host = '';
   try { host = new URL(e.request.url).hostname; } catch (_) {}
   if (host === 'api.anthropic.com' || host.endsWith('.anthropic.com')) return;
+  if (host.endsWith('.supabase.co') || host.endsWith('.supabase.in')) return;
+  if (host === 'api.deepgram.com') return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
