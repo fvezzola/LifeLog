@@ -4,12 +4,18 @@
 export const state = {
   entries: [],
   taxonomy: {},      // { key: { name, description, icon, color, count } }
-  apiKey: '',        // Anthropic
+  aiProvider: 'anthropic',  // 'anthropic' | 'gemini'
+  anthropicKey: '',
+  geminiKey: '',
   dgKey: '',         // Deepgram (optional voice fallback)
   browseFilter: 'all',
   isRecording: false,
   voiceFinalText: '',
 };
+
+export function getActiveAiKey() {
+  return state.aiProvider === 'gemini' ? state.geminiKey : state.anthropicKey;
+}
 
 export const CAT_COLORS = [
   '#4a9eff','#e8b84b','#4acd8a','#e05555','#b86cf0',
@@ -17,10 +23,12 @@ export const CAT_COLORS = [
 ];
 
 export function loadState() {
-  state.apiKey  = localStorage.getItem('ll_key') || '';
-  state.dgKey   = localStorage.getItem('ll_dg_key') || '';
-  state.entries = JSON.parse(localStorage.getItem('ll_entries') || '[]');
-  state.taxonomy = JSON.parse(localStorage.getItem('ll_taxonomy') || '{}');
+  state.aiProvider   = localStorage.getItem('ll_ai_provider') || 'anthropic';
+  state.anthropicKey = localStorage.getItem('ll_key') || '';
+  state.geminiKey    = localStorage.getItem('ll_gemini_key') || '';
+  state.dgKey        = localStorage.getItem('ll_dg_key') || '';
+  state.entries      = JSON.parse(localStorage.getItem('ll_entries') || '[]');
+  state.taxonomy     = JSON.parse(localStorage.getItem('ll_taxonomy') || '{}');
 }
 
 export function savePersist() {
