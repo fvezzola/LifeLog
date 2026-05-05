@@ -1,7 +1,7 @@
 // App entry point: wires modules together, runs init(), exposes the
 // handful of functions still referenced via inline onclick="" in HTML.
 
-import { state, loadState, savePersist, CAT_COLORS } from './state.js';
+import { state, loadState, savePersist, CAT_COLORS, getActiveAiKey } from './state.js';
 import {
   toast, showScreen, openSheet, closeSheet,
   renderLog, renderBrowse, renderBrowseChips, renderTaxonomyPills,
@@ -11,7 +11,7 @@ import { classify, reanalyzeTaxonomy } from './ai.js';
 import { initVoice, toggleVoice } from './voice.js';
 import { toggleReminder, startReminder } from './reminders.js';
 import { deleteEntry, deleteCat, clearAll, exportData, importData, handleImport } from './data.js';
-import { saveApiKey, saveDgKey, clearDgKey } from './settings.js';
+import { saveApiKey, saveGeminiKey, setAiProvider, initAiSettingsUi, saveDgKey, clearDgKey } from './settings.js';
 import { initSync, pushEntry, pushTaxonomy } from './sync.js';
 
 // ── Submit (the entry → classify → render → persist flow) ─────────────
@@ -20,9 +20,10 @@ async function submitEntry() {
   const text = ta.value.trim();
   if (!text) return;
 
+  const hasAi = !!getActiveAiKey();
   const btn = document.getElementById('sheet-submit');
   btn.disabled = true;
-  btn.textContent = state.apiKey ? '⟳ classifying...' : '⟳ saving...';
+  btn.textContent = hasAi ? '⟳ classifying...' : '⟳ saving...';
   document.getElementById('loading-card').classList.add('visible');
 
   const wasVoice = state.isRecording || (state.voiceFinalText && text === state.voiceFinalText);
@@ -36,7 +37,7 @@ async function submitEntry() {
     let tags = [];
     let taxonomySuggestion = null;
 
-    if (state.apiKey) {
+    if (hasAi) {
       const result = await classify(text);
       key = result.category_key || 'other';
       summary = result.summary || '';
@@ -78,7 +79,7 @@ async function submitEntry() {
 
     if (taxonomySuggestion) renderTaxonomySuggestion(taxonomySuggestion);
 
-    if (state.apiKey) toast(`→ ${state.taxonomy[key]?.name || key}`);
+    if (hasAi) toast(`→ ${state.taxonomy[key]?.name || key}`);
     else toast('Saved (add API key in Settings to auto-categorize)');
   } catch (e) {
     toast('Error: ' + e.message);
@@ -95,8 +96,8 @@ async function submitEntry() {
 function init() {
   loadState();
 
-  if (state.apiKey) document.getElementById('key-status').textContent = '✓ API key saved';
-  if (state.dgKey)  document.getElementById('dg-key-status').textContent = '✓ Deepgram key saved — voice will use Deepgram';
+  initAiSettingsUi();
+  if (state.dgKey) document.getElementById('dg-key-status').textContent = '✓ Deepgram key saved — voice will use Deepgram';
 
   const remMins = localStorage.getItem('ll_remindermins') || '120';
   const remOn   = localStorage.getItem('ll_reminderon') === 'true';
@@ -124,7 +125,7 @@ function init() {
 // scope is local. Bind the handful that HTML references directly.
 Object.assign(window, {
   showScreen, openSheet, closeSheet, submitEntry, toggleVoice,
-  saveApiKey, saveDgKey, clearDgKey, reanalyzeTaxonomy,
+  saveApiKey, saveGeminiKey, setAiProvider, saveDgKey, clearDgKey, reanalyzeTaxonomy,
   toggleReminder, exportData, importData, handleImport, clearAll,
   deleteEntry, deleteCat, filterBrowse,
 });

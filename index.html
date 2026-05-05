@@ -413,7 +413,9 @@ body {
 .settings-row small { font-size: 10px; color: var(--muted); line-height: 1.5; }
 .settings-row input[type="password"],
 .settings-row input[type="number"],
-.settings-row input[type="text"] {
+.settings-row input[type="text"],
+.settings-row input[type="email"],
+.settings-row select {
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -611,12 +613,25 @@ body {
   <div id="settings-scroll">
 
     <div class="settings-section">
-      <div class="settings-section-title">API Key (Anthropic)</div>
+      <div class="settings-section-title">AI Provider</div>
       <div class="settings-row">
-        <small>Your key stays on your device. Get one free at console.anthropic.com</small>
+        <small>Choose which AI categorizes your entries. Anthropic Claude is paid (smarter); Google Gemini has a free tier. The app works without either — entries just save uncategorized.</small>
+        <select id="ai-provider-select">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="gemini">Google (Gemini)</option>
+        </select>
+      </div>
+      <div class="settings-row" id="anthropic-key-row">
+        <small>Get a key at console.anthropic.com (pay-as-you-go, ~$0.003 per entry).</small>
         <input type="password" id="api-key-input" placeholder="sk-ant-...">
-        <button class="settings-btn" onclick="saveApiKey()">Save Key</button>
+        <button class="settings-btn" onclick="saveApiKey()">Save Anthropic Key</button>
         <div id="key-status" style="font-size:10px;color:var(--muted)"></div>
+      </div>
+      <div class="settings-row" id="gemini-key-row" style="display:none">
+        <small>Get a free key at aistudio.google.com/apikey (free tier: 15 requests/min, 1500/day).</small>
+        <input type="password" id="gemini-key-input" placeholder="AIza...">
+        <button class="settings-btn" onclick="saveGeminiKey()">Save Gemini Key</button>
+        <div id="gemini-key-status" style="font-size:10px;color:var(--muted)"></div>
       </div>
     </div>
 
@@ -650,12 +665,12 @@ body {
     <div class="settings-section">
       <div class="settings-section-title">Dynamic Taxonomy</div>
       <div class="settings-row">
-        <small>Your current auto-generated categories. Claude builds these from your entries — they'll evolve over time.</small>
+        <small>Your current auto-generated categories. The AI builds these from your entries — they'll evolve over time.</small>
         <div id="taxonomy-pills"></div>
       </div>
       <div class="settings-row">
         <button class="settings-btn" onclick="reanalyzeTaxonomy()">↺ Re-analyze all entries</button>
-        <small>Claude will re-read every entry and rebuild the taxonomy from scratch.</small>
+        <small>The AI will re-read every entry and rebuild the taxonomy from scratch.</small>
       </div>
     </div>
 

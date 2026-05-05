@@ -1,11 +1,70 @@
-// Anthropic API calls — entry classification + taxonomy rebuild.
+// AI calls — entry classification + taxonomy rebuild.
+// Supports Anthropic (Claude) and Google (Gemini) as interchangeable backends.
 
-import { state, savePersist, CAT_COLORS } from './state.js';
+import { state, savePersist, CAT_COLORS, getActiveAiKey } from './state.js';
 import { toast, renderTaxonomyPills, renderLog, renderBrowseChips } from './ui.js';
 import { pushTaxonomy } from './sync.js';
 
-const MODEL = 'claude-sonnet-4-20250514';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
+const GEMINI_MODEL    = 'gemini-2.5-flash';
 
+// ── Provider dispatch ────────────────────────────────────────────────
+async function callAi(prompt, maxTokens) {
+  const key = getActiveAiKey();
+  if (!key) throw new Error('No AI key set');
+  return state.aiProvider === 'gemini'
+    ? callGemini(prompt, maxTokens, key)
+    : callAnthropic(prompt, maxTokens, key);
+}
+
+async function callAnthropic(prompt, maxTokens, key) {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':       'application/json',
+      'x-api-key':          key,
+      'anthropic-version':  '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: ANTHROPIC_MODEL,
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Anthropic API ${resp.status}`);
+  }
+  const data = await resp.json();
+  return data.content.map(c => c.text || '').join('');
+}
+
+async function callGemini(prompt, maxTokens, key) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        maxOutputTokens:  maxTokens
+      }
+    })
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Gemini API ${resp.status}`);
+  }
+  const data = await resp.json();
+  return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+}
+
+function parseJsonResponse(raw) {
+  return JSON.parse(raw.trim().replace(/```json|```/g, '').trim());
+}
+
+// ── Classification ───────────────────────────────────────────────────
 export async function classify(text) {
   const recentContext = state.entries.slice(0, 5)
     .map(e => `[${e.category}] ${e.text.slice(0, 80)}`)
@@ -53,32 +112,13 @@ If is_new is true, set new_category:
 If suggesting taxonomy optimization:
 "taxonomy_suggestion": { "type": "merge|rename|split", "description": "plain english explanation", "from": "cat_key", "to": "new_name_or_target_key" }`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': state.apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 400,
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-
-  if (!resp.ok) {
-    const err = await resp.json();
-    throw new Error(err.error?.message || `API ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  const raw  = data.content.map(c => c.text || '').join('').trim().replace(/```json|```/g, '').trim();
-  return JSON.parse(raw);
+  const raw = await callAi(prompt, 400);
+  return parseJsonResponse(raw);
 }
 
+// ── Taxonomy rebuild ─────────────────────────────────────────────────
 export async function reanalyzeTaxonomy() {
-  if (!state.apiKey)        { toast('Set your API key first'); return; }
+  if (!getActiveAiKey())     { toast('Set your API key first'); return; }
   if (!state.entries.length) { toast('No entries yet'); return; }
 
   toast('Re-analyzing taxonomy...');
@@ -102,15 +142,8 @@ Respond ONLY with valid JSON array of category objects, no markdown:
 ]`;
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': state.apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 800, messages: [{ role: 'user', content: prompt }] })
-    });
-
-    const data  = await resp.json();
-    const raw   = data.content.map(c => c.text || '').join('').trim().replace(/```json|```/g, '').trim();
-    const cats  = JSON.parse(raw);
+    const raw  = await callAi(prompt, 800);
+    const cats = parseJsonResponse(raw);
 
     const newTax = {};
     const colorPool = [...CAT_COLORS];
