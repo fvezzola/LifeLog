@@ -23,6 +23,7 @@ export async function initSync() {
 
   // React to sign-in / sign-out (including magic-link redirects)
   client.auth.onAuthStateChange(async (event, session) => {
+    console.log('[sync] auth event:', event, 'user:', session?.user?.email || null);
     currentUser = session?.user || null;
     updateSyncUi();
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
@@ -95,13 +96,20 @@ export async function pushTaxonomy() {
 
 // ── Initial sync on sign-in ──────────────────────────────────────────
 async function initialSync() {
+  console.log('[sync] initialSync: starting, user.id =', currentUser?.id);
   setSyncStatus('syncing...');
   try {
-    // Fetch remote entries + taxonomy
+    console.log('[sync] initialSync: firing entries + app_state queries...');
     const [entriesRes, stateRes] = await Promise.all([
       client.from('entries').select('*').order('timestamp', { ascending: false }),
       client.from('app_state').select('*').eq('user_id', currentUser.id).maybeSingle()
     ]);
+    console.log('[sync] initialSync: queries resolved', {
+      entriesError: entriesRes.error,
+      entriesCount: entriesRes.data?.length,
+      stateError: stateRes.error,
+      stateData:   stateRes.data
+    });
     if (entriesRes.error) throw entriesRes.error;
 
     const remoteEntries = entriesRes.data || [];
