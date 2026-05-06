@@ -1,6 +1,13 @@
-// Supabase project credentials. The publishable (a.k.a. anon) key is
-// safe to expose in client code as long as Row Level Security is enabled
-// on every table — see supabase_schema.sql for the policies.
+// LifeLog backend URL. Point this at your self-hosted server (the Hono
+// API in ../server/), exposed via Tailscale Serve or a public domain.
+//
+// Examples:
+//   - Tailscale Serve:   https://lifelog.tail-scales.ts.net
+//   - Cloudflare Tunnel: https://lifelog.yourdomain.com
+//   - Local dev:         http://127.0.0.1:3000
+//
+// This URL must match the PUBLIC_URL configured in server/.env, and the
+// PWA's origin (e.g. https://fvezzola.github.io) must be in that
+// server's ALLOWED_ORIGIN.
 
-export const SUPABASE_URL = 'https://qjxezpdwpqcsadlmawku.supabase.co';
-export const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqeGV6cGR3cHFjc2FkbG1hd2t1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5NTQ4NTAsImV4cCI6MjA5MzUzMDg1MH0.WzAYXve8f8Y4wL7y6ST-EE7vgwCLTdjYBvkAYvHL7RQ';
+export const API_BASE = 'https://lifelog.example.ts.net';

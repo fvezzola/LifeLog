@@ -1,0 +1,22 @@
+# Postgres only. The Node API runs on the host (via `npm run dev` or as a
+# systemd service), so you don't need a Dockerfile for it. Tailscale Serve
+# on the host fronts the API with TLS — no reverse proxy in this stack.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: lifelog-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lifelog
+      POSTGRES_PASSWORD: lifelog
+      POSTGRES_DB: lifelog
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifelog -d lifelog"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

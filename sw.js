@@ -1,4 +1,4 @@
-const CACHE = 'lifelog-v4';
+const CACHE = 'lifelog-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
   'js/data.js',
   'js/settings.js',
   'js/sync.js',
+  'js/api.js',
   'js/config.js',
   'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=IBM+Plex+Mono:ital,wght@0,300;0,400;1,300&display=swap'
 ];
@@ -32,26 +33,35 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Fetch: cache-first for own assets, network passthrough for AI/sync APIs
+// Fetch: cache the static PWA shell, let everything else go to network.
+// We intentionally don't intercept cross-origin requests (LifeLog API,
+// AI providers, Deepgram, etc.) — they need fresh data, auth cookies,
+// and SSE streams that caching would break.
+const SAME_ORIGIN = self.location.origin;
+const CACHEABLE_CROSS_ORIGIN = new Set([
+  'https://fonts.googleapis.com',
+  'https://fonts.gstatic.com',
+]);
+
 self.addEventListener('fetch', e => {
-  let host = '';
-  try { host = new URL(e.request.url).hostname; } catch (_) {}
-  if (host === 'api.anthropic.com' || host.endsWith('.anthropic.com')) return;
-  if (host === 'generativelanguage.googleapis.com')                   return;
-  if (host.endsWith('.supabase.co') || host.endsWith('.supabase.in')) return;
-  if (host === 'api.deepgram.com')                                    return;
+  const url = new URL(e.request.url);
+  const sameOrigin = url.origin === SAME_ORIGIN;
+  const cacheableCrossOrigin = CACHEABLE_CROSS_ORIGIN.has(url.origin);
+
+  if (!sameOrigin && !cacheableCrossOrigin) return;            // passthrough
+  if (e.request.method !== 'GET')             return;          // never cache mutations
 
   e.respondWith(
     caches.match(e.request).then(cached => {
       if (cached) return cached;
       return fetch(e.request).then(resp => {
-        if (resp.ok && e.request.method === 'GET' && host !== 'fonts.googleapis.com' && host !== 'fonts.gstatic.com') {
+        if (resp.ok) {
           const clone = resp.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return resp;
       });
-    }).catch(() => caches.match('index.html'))
+    }).catch(() => sameOrigin ? caches.match('index.html') : undefined)
   );
 });
 

@@ -1,52 +1,40 @@
-// Cloud sync: Supabase auth (magic link) + entries CRUD + realtime
-// subscription. No-op when the user isn't signed in, so the app keeps
-// working in pure-localStorage mode.
+// Cloud sync against the self-hosted LifeLog backend (server/).
+// Magic-link auth, entries CRUD, taxonomy blob, realtime via SSE.
+// No-op when not signed in, so the app keeps working in pure-localStorage
+// mode.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+import * as api from './api.js';
 import { state, savePersist } from './state.js';
 import {
   toast, renderLog, renderTaxonomyPills, renderBrowse,
-  renderBrowseChips, updateEntryCount
+  renderBrowseChips, updateEntryCount,
 } from './ui.js';
 
-let client       = null;
-let currentUser  = null;
-let realtimeCh   = null;
-let lastSyncMs   = 0;
+let currentUser = null;
+let unsubscribeStream = null;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────
 export async function initSync() {
-  client = createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true }
-  });
-
-  // React to sign-in / sign-out (including magic-link redirects)
-  // Note: we MUST defer any client.from(...) calls out of this callback —
-  // supabase-js holds an auth lock during the callback that PostgREST
-  // requests also need, which deadlocks the await. setTimeout(...,0)
-  // breaks us out of the callback so the lock can release.
-  client.auth.onAuthStateChange((event, session) => {
-    currentUser = session?.user || null;
-    updateSyncUi();
-    if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-      if (currentUser) {
-        setTimeout(async () => {
-          await initialSync();
-          subscribeRealtime();
-        }, 0);
-      }
-    }
-    if (event === 'SIGNED_OUT') {
-      unsubscribeRealtime();
-    }
-  });
-
-  // Wire up the Settings UI buttons
-  const signinBtn = document.getElementById('sync-signin-btn');
+  // Wire Settings buttons regardless of auth state.
+  const signinBtn  = document.getElementById('sync-signin-btn');
   const signoutBtn = document.getElementById('sync-signout-btn');
   if (signinBtn)  signinBtn.addEventListener('click', sendMagicLink);
   if (signoutBtn) signoutBtn.addEventListener('click', signOut);
+
+  // On load, ask the server whether we're signed in (cookie may have
+  // been set by /api/auth/verify on a previous visit).
+  try {
+    currentUser = await api.getMe();
+  } catch (err) {
+    console.warn('[sync] /api/me failed', err);
+    currentUser = null;
+  }
+  updateSyncUi();
+
+  if (currentUser) {
+    await initialSync();
+    subscribeRealtime();
+  }
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────
@@ -54,18 +42,21 @@ async function sendMagicLink() {
   const email = document.getElementById('sync-email').value.trim();
   if (!email || !email.includes('@')) { toast('Enter a valid email'); return; }
   setSyncStatus('sending magic link...');
-  const { error } = await client.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.href }
-  });
-  if (error) { toast(`Sign-in failed: ${error.message}`); setSyncStatus(''); return; }
-  setSyncStatus(`✓ link sent to ${email} — check your inbox`);
-  toast('Magic link sent');
+  try {
+    await api.requestMagicLink(email);
+    setSyncStatus(`✓ link sent to ${email} — check your inbox / server logs`);
+    toast('Magic link sent');
+  } catch (err) {
+    toast(`Sign-in failed: ${err.message}`);
+    setSyncStatus('');
+  }
 }
 
 async function signOut() {
   unsubscribeRealtime();
-  await client.auth.signOut();
+  try { await api.signOutRemote(); } catch (err) { console.warn('[sync] signOut', err); }
+  currentUser = null;
+  updateSyncUi();
   toast('Signed out — local data preserved');
 }
 
@@ -74,58 +65,42 @@ export function getUser()    { return currentUser; }
 
 // ── Mutation hooks (called from data.js / app.js) ─────────────────────
 export async function pushEntry(entry) {
-  if (!currentUser || !client) return;
-  const row = { ...entry, user_id: currentUser.id };
-  const { error } = await client.from('entries').upsert(row);
-  if (error) console.warn('[sync] pushEntry', error);
-  else markSynced();
+  if (!currentUser) return;
+  try { await api.upsertEntries(entry); markSynced(); }
+  catch (err) { console.warn('[sync] pushEntry', err); }
 }
 
 export async function deleteEntryRemote(id) {
-  if (!currentUser || !client) return;
-  const { error } = await client.from('entries').delete().eq('id', id);
-  if (error) console.warn('[sync] deleteEntryRemote', error);
-  else markSynced();
+  if (!currentUser) return;
+  try { await api.deleteEntry(id); markSynced(); }
+  catch (err) { console.warn('[sync] deleteEntryRemote', err); }
 }
 
 export async function pushTaxonomy() {
-  if (!currentUser || !client) return;
-  const { error } = await client.from('app_state').upsert({
-    user_id:    currentUser.id,
-    taxonomy:   state.taxonomy,
-    updated_at: new Date().toISOString()
-  });
-  if (error) console.warn('[sync] pushTaxonomy', error);
-  else markSynced();
+  if (!currentUser) return;
+  try { await api.putAppState(state.taxonomy); markSynced(); }
+  catch (err) { console.warn('[sync] pushTaxonomy', err); }
 }
 
 // ── Initial sync on sign-in ──────────────────────────────────────────
 async function initialSync() {
   setSyncStatus('syncing...');
   try {
-    const [entriesRes, stateRes] = await Promise.all([
-      client.from('entries').select('*').order('timestamp', { ascending: false }),
-      client.from('app_state').select('*').eq('user_id', currentUser.id).maybeSingle()
+    const [remoteEntries, remoteState] = await Promise.all([
+      api.listEntries(),
+      api.getAppState(),
     ]);
-    if (entriesRes.error) throw entriesRes.error;
 
-    const remoteEntries = entriesRes.data || [];
     const remoteIds = new Set(remoteEntries.map(e => e.id));
     const localOnly = state.entries.filter(e => !remoteIds.has(e.id));
 
-    // Push local-only entries to remote
     if (localOnly.length) {
-      const rows = localOnly.map(e => ({ ...e, user_id: currentUser.id }));
-      const { error } = await client.from('entries').upsert(rows);
-      if (error) throw error;
+      await api.upsertEntries(localOnly);
     }
 
-    // Merged set: remote + local-only, sorted newest-first
     state.entries = [...remoteEntries, ...localOnly]
       .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
-    // Taxonomy: remote takes precedence if it has data; otherwise push local up.
-    const remoteState = stateRes.data;
     if (remoteState && remoteState.taxonomy && Object.keys(remoteState.taxonomy).length) {
       state.taxonomy = remoteState.taxonomy;
     } else if (Object.keys(state.taxonomy).length) {
@@ -146,47 +121,49 @@ async function initialSync() {
   }
 }
 
-// ── Realtime: react to inserts / updates / deletes from other devices ─
+// ── Realtime: react to changes from other devices ─────────────────────
 function subscribeRealtime() {
-  if (!currentUser || realtimeCh) return;
-  realtimeCh = client
-    .channel('lifelog-' + currentUser.id)
-    .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'entries', filter: `user_id=eq.${currentUser.id}` },
-      payload => {
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          const row = payload.new;
-          const idx = state.entries.findIndex(e => e.id === row.id);
-          if (idx >= 0) state.entries[idx] = row;
-          else state.entries.unshift(row);
-        } else if (payload.eventType === 'DELETE') {
-          state.entries = state.entries.filter(e => e.id !== payload.old.id);
-        }
-        savePersist();
-        renderLog();
-        renderBrowse();
-        updateEntryCount();
-        markSynced();
-      })
-    .on('postgres_changes',
-      { event: '*', schema: 'public', table: 'app_state', filter: `user_id=eq.${currentUser.id}` },
-      payload => {
-        if (payload.new && payload.new.taxonomy) {
-          state.taxonomy = payload.new.taxonomy;
-          savePersist();
-          renderTaxonomyPills();
-          renderLog();
-          renderBrowseChips();
-          markSynced();
-        }
-      })
-    .subscribe();
+  if (unsubscribeStream) return;
+  unsubscribeStream = api.subscribeChanges(
+    payload => applyChange(payload),
+    err => {
+      console.warn('[sync] stream closed', err);
+      unsubscribeStream = null;
+      setSyncStatus('disconnected — retrying...');
+      // EventSource auto-reconnects; if it gives up we re-establish.
+      setTimeout(() => { if (currentUser && !unsubscribeStream) subscribeRealtime(); }, 3000);
+    },
+  );
 }
 
 function unsubscribeRealtime() {
-  if (realtimeCh) {
-    client.removeChannel(realtimeCh);
-    realtimeCh = null;
+  if (unsubscribeStream) { unsubscribeStream(); unsubscribeStream = null; }
+}
+
+function applyChange(payload) {
+  const { table, op, row } = payload;
+  if (table === 'entries') {
+    if (op === 'INSERT' || op === 'UPDATE') {
+      const idx = state.entries.findIndex(e => e.id === row.id);
+      if (idx >= 0) state.entries[idx] = row;
+      else state.entries.unshift(row);
+    } else if (op === 'DELETE') {
+      state.entries = state.entries.filter(e => e.id !== row.id);
+    }
+    savePersist();
+    renderLog();
+    renderBrowse();
+    updateEntryCount();
+    markSynced();
+  } else if (table === 'app_state') {
+    if (row.taxonomy) {
+      state.taxonomy = row.taxonomy;
+      savePersist();
+      renderTaxonomyPills();
+      renderLog();
+      renderBrowseChips();
+      markSynced();
+    }
   }
 }
 
@@ -213,6 +190,5 @@ function setSyncStatus(text) {
 }
 
 function markSynced() {
-  lastSyncMs = Date.now();
   setSyncStatus('✓ synced');
 }
