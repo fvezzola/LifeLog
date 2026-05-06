@@ -22,14 +22,20 @@ export async function initSync() {
   });
 
   // React to sign-in / sign-out (including magic-link redirects)
-  client.auth.onAuthStateChange(async (event, session) => {
+  // Note: we MUST defer any client.from(...) calls out of this callback —
+  // supabase-js holds an auth lock during the callback that PostgREST
+  // requests also need, which deadlocks the await. setTimeout(...,0)
+  // breaks us out of the callback so the lock can release.
+  client.auth.onAuthStateChange((event, session) => {
     console.log('[sync] auth event:', event, 'user:', session?.user?.email || null);
     currentUser = session?.user || null;
     updateSyncUi();
     if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
       if (currentUser) {
-        await initialSync();
-        subscribeRealtime();
+        setTimeout(async () => {
+          await initialSync();
+          subscribeRealtime();
+        }, 0);
       }
     }
     if (event === 'SIGNED_OUT') {
