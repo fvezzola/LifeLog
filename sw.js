@@ -1,4 +1,4 @@
-const CACHE = 'lifelog-v5';
+const CACHE = 'lifelog-v6';
 const ASSETS = [
   './',
   'index.html',
@@ -50,6 +50,10 @@ self.addEventListener('fetch', e => {
 
   if (!sameOrigin && !cacheableCrossOrigin) return;            // passthrough
   if (e.request.method !== 'GET')             return;          // never cache mutations
+  // Backend API + realtime stream — must always hit the network.
+  // Caching /api/me would serve stale auth state; caching /api/entries
+  // would serve stale data; caching /api/stream would break SSE entirely.
+  if (sameOrigin && url.pathname.startsWith('/api/')) return;
 
   e.respondWith(
     caches.match(e.request).then(cached => {
