@@ -1,14 +1,15 @@
 # LifeLog server
 
-Self-hosted backend for LifeLog. Hono + Postgres, exposed to your other devices via Tailscale Serve. Replaces Supabase.
+Self-hosted backend for LifeLog. Hono + Postgres, exposed to your other devices via Tailscale Serve. Replaces Supabase. No third-party services for auth or email — accounts are created via a local CLI command and you sign in with email + password.
 
 ---
 
 ## What's here
 
-- `src/` — Hono API: auth (magic link + JWT cookie), entries CRUD, taxonomy blob, SSE realtime.
-- `migrations/` — schema SQL applied by `npm run migrate`.
+- `src/` — Hono API: password auth (JWT cookie), entries CRUD, taxonomy blob, SSE realtime.
+- `migrations/001_init.sql` — schema, applied by `npm run migrate`.
 - `scripts/migrate.ts` — applies migrations.
+- `scripts/create-user.ts` — creates a user account (or resets a password).
 - `scripts/import.ts` — one-shot importer for a Supabase / LifeLog JSON export.
 - `docker-compose.yml` — Postgres only. The Node API runs on the host.
 
@@ -16,55 +17,70 @@ Self-hosted backend for LifeLog. Hono + Postgres, exposed to your other devices 
 
 ## First-time setup
 
-### 1. Install Node + Docker on your laptop
+### 1. Install Node, Docker, Tailscale on your laptop
 
-You need Node 20+ and Docker Desktop (or Colima / OrbStack on macOS, Docker Engine on Linux).
+- **Node 20 or newer** — https://nodejs.org (LTS installer is fine)
+- **Docker Desktop** — https://www.docker.com/products/docker-desktop (macOS/Windows). On Linux: install Docker Engine.
+- **Tailscale** — https://tailscale.com/download. Sign up for a free account.
 
-### 2. Install Tailscale
+After installing Tailscale, open the app and sign in. Then install the Tailscale app on your phone too and sign in with the same account. Your phone and laptop are now on the same private network.
 
-```sh
-# macOS
-brew install --cask tailscale
-# Linux
-curl -fsSL https://tailscale.com/install.sh | sh
-```
-
-Sign in (`tailscale up`). Install the Tailscale app on every device that should reach LifeLog (phone, other laptops). They all share a private network.
-
-### 3. Configure env
+### 2. Configure the server
 
 ```sh
 cd server
 cp .env.example .env
 ```
 
-Edit `.env`:
+Open `.env` in any text editor and edit two values:
 
-- `JWT_SECRET` — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-- `PUBLIC_URL` — your tailnet hostname (see step 5). Set after `tailscale serve` is up. Example: `https://lifelog.tail-scales.ts.net`.
-- `ALLOWED_ORIGIN` — where the PWA lives. For GitHub Pages: `https://fvezzola.github.io`. For local dev of the front-end: `http://127.0.0.1:5500`.
-- `RESEND_API_KEY` — leave empty initially. Magic links print to the server console; copy-paste them into the browser. Set this later if you want real email delivery.
+- **JWT_SECRET** — paste the output of:
+  ```sh
+  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  ```
+- **ALLOWED_ORIGIN** — the URL where your PWA lives. For GitHub Pages: `https://<your-github-username>.github.io`. (No trailing slash.)
 
-### 4. Start Postgres + run migrations
+Leave the other values at their defaults.
+
+### 3. Start Postgres
 
 ```sh
 docker compose up -d
+```
+
+This downloads Postgres 16 and starts it in the background. Run `docker compose ps` to confirm `lifelog-pg` is `healthy`.
+
+### 4. Install Node deps and apply the schema
+
+```sh
 npm install
 npm run migrate
 ```
 
-### 5. Front the API with Tailscale Serve (handles TLS for free)
+You should see `[migrate] applying 001_init.sql` followed by `[migrate] done (1 files)`.
 
-In a separate shell, leave this running:
+### 5. Create your user account
+
+```sh
+npm run create-user
+```
+
+It'll prompt for an email and password. Both will be visible as you type — that's fine, you're alone at your laptop. The password is hashed with bcrypt before being stored.
+
+You can re-run this any time to change a password (or to add a second user later).
+
+### 6. Front the API with Tailscale (free TLS)
+
+In a separate terminal, leave this running:
 
 ```sh
 sudo tailscale serve --https=443 --bg http://127.0.0.1:3000
 tailscale serve status
 ```
 
-The status output shows your public URL — copy it back into `.env` as `PUBLIC_URL`.
+The status output prints your public URL — something like `https://lifelog-laptop.tail-scales.ts.net`. **Copy that URL** — you'll use it in step 8.
 
-### 6. Run the API
+### 7. Run the API
 
 ```sh
 npm run dev
@@ -77,28 +93,35 @@ You should see:
 [server] listening on http://127.0.0.1:3000
 ```
 
-Hit `https://<tailnet>/api/health` from a browser on any tailnet device — should return `{"ok":true,"db":"up"}`.
+Test it: open the URL from step 6 in your phone's browser, append `/api/health`. You should get `{"ok":true,"db":"up"}`.
 
-### 7. Point the PWA at it
+### 8. Point the PWA at your server
 
-In `../js/config.js`, replace `API_BASE` with your `PUBLIC_URL` value. Commit + push (GitHub Pages picks it up).
+Open `js/config.js` (in the **root** of the repo, not in `server/`) and replace the placeholder URL with the one from step 6:
 
-### 8. Sign in for the first time
+```js
+export const API_BASE = 'https://lifelog-laptop.tail-scales.ts.net';
+```
 
-Open the PWA, go to **Settings → Cloud Sync**, enter your email, click **Send Magic Link**. The server console prints the link — open it in the same browser. The cookie gets set, the PWA flips to signed-in state, and `initialSync` runs.
+Commit and push. GitHub Pages will redeploy in a minute or two.
+
+### 9. Sign in for the first time
+
+Open the live PWA on your phone or laptop, go to **Settings → Cloud Sync**, enter the email and password you set in step 5, click **Sign in**. The app should load your entries and start syncing.
 
 ---
 
-## Migrating data from Supabase
+## Migrating existing data from Supabase
 
-If you already have entries in your Supabase project:
+If you have entries in your old Supabase project:
 
 1. Open the live PWA → **Settings → Export** → save the JSON file.
-2. Run:
+2. Run, on your laptop with the server set up:
    ```sh
-   tsx scripts/import.ts you@example.com /path/to/lifelog_export.json
+   npx tsx scripts/import.ts you@example.com /path/to/lifelog_export.json
    ```
-3. Sign in to the new backend with the same email — your entries and taxonomy should be there.
+   (Use the same email you used for `create-user`.)
+3. Sign in to the new backend — your entries should be there.
 
 The importer is idempotent (re-running with the same dump is safe) and won't touch entries belonging to other users.
 
@@ -106,20 +129,21 @@ The importer is idempotent (re-running with the same dump is safe) and won't tou
 
 ## Day-to-day operation
 
-Whenever you reboot:
+After a reboot:
 
 ```sh
 docker compose up -d        # Postgres
-sudo tailscale serve ...    # if it doesn't auto-start
 npm run dev                 # API
+sudo tailscale serve ...    # if it doesn't auto-start
 ```
 
-For hands-free, register the API as a launchd / systemd service. Doc TBD.
+Want hands-off start? Wrap `npm run dev` in a launchd / systemd service. (Doc TBD; ask and I'll add one.)
 
 ---
 
 ## Caveats
 
-- **Laptop sleep stops sync.** When the lid closes, Postgres + the API go down. Entries log offline on devices and resync when you wake the laptop. Move to an always-on box (RPi, mini-PC, or VPS) when this becomes annoying.
+- **Laptop sleep stops sync.** When the lid closes, Postgres + the API go down. Entries log offline on devices and resync when you wake the laptop.
 - **No backups yet.** Run `pg_dump` on a schedule, or move `pgdata/` to a synced folder. A proper backup story is on the roadmap.
-- **Single user assumed.** The API supports multiple users by design (every query is user-scoped), but there's no admin / invite flow. Anyone with a magic-link can sign up by entering an email.
+- **No public signup.** New accounts are created only via `npm run create-user`. This is deliberate — for a small self-hosted system, the smaller attack surface is worth the inconvenience.
+- **No password reset by email.** If you forget your password, run `npm run create-user` with the same email to set a new one. (Phase 1.5 will introduce end-to-end encryption, after which password recovery will require a recovery code; that's a different document.)

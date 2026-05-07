@@ -636,11 +636,12 @@ body {
     </div>
 
     <div class="settings-section">
-      <div class="settings-section-title">Cloud Sync (Supabase)</div>
+      <div class="settings-section-title">Cloud Sync</div>
       <div class="settings-row" id="sync-signed-out">
-        <small>Sign in with email to sync entries between phone and PC. We send a magic link — no password to remember. The app keeps working offline; sync happens when you're back online.</small>
-        <input type="email" id="sync-email" placeholder="you@example.com">
-        <button class="settings-btn" id="sync-signin-btn">Send Magic Link</button>
+        <small>Sign in to sync entries between phone and PC. The app keeps working offline; sync happens when you're back online.</small>
+        <input type="email"    id="sync-email"    placeholder="you@example.com" autocomplete="username">
+        <input type="password" id="sync-password" placeholder="password"        autocomplete="current-password">
+        <button class="settings-btn" id="sync-signin-btn">Sign in</button>
       </div>
       <div class="settings-row" id="sync-signed-in" style="display:none">
         <small>Signed in as <strong id="sync-user-email"></strong></small>

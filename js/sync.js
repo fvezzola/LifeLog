@@ -1,7 +1,6 @@
 // Cloud sync against the self-hosted LifeLog backend (server/).
-// Magic-link auth, entries CRUD, taxonomy blob, realtime via SSE.
-// No-op when not signed in, so the app keeps working in pure-localStorage
-// mode.
+// Password auth, entries CRUD, taxonomy blob, realtime via SSE. No-op
+// when not signed in, so the app keeps working in pure-localStorage mode.
 
 import * as api from './api.js';
 import { state, savePersist } from './state.js';
@@ -18,8 +17,11 @@ export async function initSync() {
   // Wire Settings buttons regardless of auth state.
   const signinBtn  = document.getElementById('sync-signin-btn');
   const signoutBtn = document.getElementById('sync-signout-btn');
-  if (signinBtn)  signinBtn.addEventListener('click', sendMagicLink);
+  const passwordEl = document.getElementById('sync-password');
+  if (signinBtn)  signinBtn.addEventListener('click', signIn);
   if (signoutBtn) signoutBtn.addEventListener('click', signOut);
+  // Pressing Enter in the password field submits the form.
+  if (passwordEl) passwordEl.addEventListener('keydown', e => { if (e.key === 'Enter') signIn(); });
 
   // On load, ask the server whether we're signed in (cookie may have
   // been set by /api/auth/verify on a previous visit).
@@ -38,16 +40,23 @@ export async function initSync() {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────
-async function sendMagicLink() {
-  const email = document.getElementById('sync-email').value.trim();
+async function signIn() {
+  const email    = document.getElementById('sync-email').value.trim();
+  const password = document.getElementById('sync-password').value;
   if (!email || !email.includes('@')) { toast('Enter a valid email'); return; }
-  setSyncStatus('sending magic link...');
+  if (!password)                      { toast('Enter your password'); return; }
+
+  setSyncStatus('signing in...');
   try {
-    await api.requestMagicLink(email);
-    setSyncStatus(`✓ link sent to ${email} — check your inbox / server logs`);
-    toast('Magic link sent');
+    currentUser = await api.login(email, password);
+    document.getElementById('sync-password').value = '';
+    updateSyncUi();
+    toast('Signed in');
+    await initialSync();
+    subscribeRealtime();
   } catch (err) {
-    toast(`Sign-in failed: ${err.message}`);
+    const msg = err.status === 401 ? 'Invalid email or password' : `Sign-in failed: ${err.message}`;
+    toast(msg);
     setSyncStatus('');
   }
 }

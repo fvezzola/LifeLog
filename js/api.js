@@ -29,10 +29,10 @@ async function req(path, opts = {}) {
 }
 
 // ── Auth ─────────────────────────────────────────────────────────────
-export async function requestMagicLink(email) {
-  return req('/api/auth/magic-link', {
+export async function login(email, password) {
+  return req('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, password }),
   });
 }
 

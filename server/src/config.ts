@@ -14,12 +14,9 @@ function optional(name: string, fallback: string): string {
 export const config = {
   databaseUrl:    required('DATABASE_URL'),
   jwtSecret:      required('JWT_SECRET'),
-  publicUrl:      required('PUBLIC_URL'),
   allowedOrigin:  required('ALLOWED_ORIGIN'),
   port:           parseInt(optional('PORT', '3000'), 10),
   host:           optional('HOST', '127.0.0.1'),
-  resendApiKey:   process.env.RESEND_API_KEY || null,
-  resendFrom:     optional('RESEND_FROM', 'LifeLog <login@lifelog.local>'),
 };
 
 if (config.jwtSecret.length < 32) {

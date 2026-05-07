@@ -4,9 +4,10 @@ create extension if not exists pgcrypto;
 
 -- ── Users ─────────────────────────────────────────────────────────────
 create table if not exists users (
-  id          uuid primary key default gen_random_uuid(),
-  email       text unique not null,
-  created_at  timestamptz not null default now()
+  id            uuid primary key default gen_random_uuid(),
+  email         text unique not null,
+  password_hash text not null,
+  created_at    timestamptz not null default now()
 );
 
 -- ── Entries: one row per logged entry ─────────────────────────────────
@@ -31,17 +32,6 @@ create table if not exists app_state (
   taxonomy    jsonb not null default '{}'::jsonb,
   updated_at  timestamptz not null default now()
 );
-
--- ── Magic-link tokens ─────────────────────────────────────────────────
-create table if not exists magic_link_tokens (
-  token       text primary key,
-  email       text not null,
-  expires_at  timestamptz not null,
-  used_at     timestamptz
-);
-
-create index if not exists magic_link_tokens_email_idx
-  on magic_link_tokens (email);
 
 -- ── Realtime: NOTIFY on entries / app_state changes ───────────────────
 -- Listeners on the 'lifelog_changes' channel get a JSON payload with the
